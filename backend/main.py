@@ -260,6 +260,22 @@ async def query_stream(
     return StreamingResponse(event_generator(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# --- Config Endpoint ---
+
+@app.get("/api/firebase-config")
+async def get_firebase_config():
+    """Return public Firebase variables from the .env so they aren't hardcoded in JS."""
+    return {
+        "apiKey": os.getenv("FIREBASE_API_KEY"),
+        "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN"),
+        "projectId": os.getenv("FIREBASE_PROJECT_ID"),
+        "storageBucket": os.getenv("FIREBASE_STORAGE_BUCKET"),
+        "messagingSenderId": os.getenv("FIREBASE_MESSAGING_SENDER_ID"),
+        "appId": os.getenv("FIREBASE_APP_ID"),
+        "measurementId": os.getenv("FIREBASE_MEASUREMENT_ID")
+    }
+
+
 # --- CRUD Endpoints for UI ---
 
 @app.get("/conversations")

@@ -1,21 +1,27 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, getIdToken } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
-// Firebase configuration from user
-const firebaseConfig = {
-    apiKey: "AIzaSyDTBl6qMs5_7dFD4uO7X3VpeNcsdQWQMB4",
-    authDomain: "rag-chatbot-27cc6.firebaseapp.com",
-    projectId: "rag-chatbot-27cc6",
-    storageBucket: "rag-chatbot-27cc6.firebasestorage.app",
-    messagingSenderId: "265973368271",
-    appId: "1:265973368271:web:1c9f3e377e12a92e047eba",
-    measurementId: "G-KNPDGQQX0L"
-};
+// ===== Initialization =====
+let app, auth, provider;
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const provider = new GoogleAuthProvider();
+async function initFirebase() {
+    try {
+        const response = await fetch('/api/firebase-config');
+        if (!response.ok) throw new Error("Failed to load Firebase config");
+        const firebaseConfig = await response.json();
+
+        app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        provider = new GoogleAuthProvider();
+
+        setupAuthListeners();
+    } catch (error) {
+        console.error("Error initializing Firebase:", error);
+        alert("Failed to initialize authentication.");
+    }
+}
+
+initFirebase();
 
 // ===== DOM Elements =====
 const authModal = document.getElementById('authModal');
@@ -41,57 +47,59 @@ let isLoading = false;
 
 // ===== Auth Listeners =====
 
-onAuthStateChanged(auth, async (user) => {
-    if (user) {
-        currentUser = user;
-        currentToken = await getIdToken(user);
+function setupAuthListeners() {
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            currentUser = user;
+            currentToken = await getIdToken(user);
 
-        // Update UI
-        authModal.classList.add('hidden');
-        userProfile.style.display = 'flex';
-        userNameEl.textContent = user.displayName || user.email;
-        if (user.photoURL) {
-            userAvatarEl.innerHTML = `<img src="${user.photoURL}" alt="avatar" style="width:100%; height:100%; border-radius:50%;">`;
+            // Update UI
+            authModal.classList.add('hidden');
+            userProfile.style.display = 'flex';
+            userNameEl.textContent = user.displayName || user.email;
+            if (user.photoURL) {
+                userAvatarEl.innerHTML = `<img src="${user.photoURL}" alt="avatar" style="width:100%; height:100%; border-radius:50%;">`;
+            } else {
+                userAvatarEl.textContent = (user.displayName || user.email).charAt(0).toUpperCase();
+            }
+
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+            messageInput.placeholder = "Ask a question about ClearPath...";
+
+            // Load sidebar data
+            await loadConversations();
         } else {
-            userAvatarEl.textContent = (user.displayName || user.email).charAt(0).toUpperCase();
+            // User is signed out
+            currentUser = null;
+            currentToken = null;
+            authModal.classList.remove('hidden');
+            userProfile.style.display = 'none';
+
+            messageInput.disabled = true;
+            sendBtn.disabled = true;
+            messageInput.placeholder = "Sign in to ask a question...";
+
+            conversationsList.innerHTML = '';
+            startNewConversation();
         }
+    });
 
-        messageInput.disabled = false;
-        sendBtn.disabled = false;
-        messageInput.placeholder = "Ask a question about ClearPath...";
+    // Auth Actions
+    googleSignInBtn.addEventListener('click', async () => {
+        try {
+            await signInWithPopup(auth, provider);
+        } catch (error) {
+            console.error("Auth error:", error);
+            alert("Failed to sign in: " + error.message);
+        }
+    });
 
-        // Load sidebar data
-        await loadConversations();
-    } else {
-        // User is signed out
-        currentUser = null;
-        currentToken = null;
-        authModal.classList.remove('hidden');
-        userProfile.style.display = 'none';
-
-        messageInput.disabled = true;
-        sendBtn.disabled = true;
-        messageInput.placeholder = "Sign in to ask a question...";
-
-        conversationsList.innerHTML = '';
-        startNewConversation();
-    }
-});
-
-// Auth Actions
-googleSignInBtn.addEventListener('click', async () => {
-    try {
-        await signInWithPopup(auth, provider);
-    } catch (error) {
-        console.error("Auth error:", error);
-        alert("Failed to sign in: " + error.message);
-    }
-});
-
-signOutBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    signOut(auth);
-});
+    signOutBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        signOut(auth);
+    });
+}
 
 // ===== Conversations API =====
 
