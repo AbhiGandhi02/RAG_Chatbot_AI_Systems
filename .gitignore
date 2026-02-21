@@ -1,0 +1,11 @@
+.env
+data/
+__pycache__/
+*.pyc
+venv/
+.venv/
+temp_repo/
+*.egg-info/
+dist/
+build/
+.DS_Store

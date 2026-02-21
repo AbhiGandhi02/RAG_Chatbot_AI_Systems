@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClearPath Support Chat</title>
+    <meta name="description" content="ClearPath customer support chatbot — get instant answers from our documentation.">
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar / Header -->
+        <header class="app-header">
+            <div class="logo">
+                <div class="logo-icon">CP</div>
+                <div>
+                    <h1>ClearPath</h1>
+                    <span class="subtitle">Support Assistant</span>
+                </div>
+            </div>
+            <button id="newChatBtn"
+                style="margin-left:auto;background:transparent;border:1px solid #333;color:#999;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;transition:all 0.2s;"
+                onmouseover="this.style.borderColor='#fff';this.style.color='#fff'"
+                onmouseout="this.style.borderColor='#333';this.style.color='#999'">+ New Chat</button>
+        </header>
+
+        <!-- Main Chat Area -->
+        <main class="chat-area">
+            <div class="chat-messages" id="chatMessages">
+                <!-- Welcome message -->
+                <div class="message bot-message">
+                    <div class="message-avatar bot-avatar">CP</div>
+                    <div class="message-content">
+                        <p>👋 Welcome to ClearPath Support! I can help you with questions about our project management
+                            platform.</p>
+                        <p>Ask me about features, pricing, integrations, troubleshooting, and more.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="chat-input-area">
+                <div class="input-wrapper">
+                    <textarea id="messageInput" placeholder="Ask a question about ClearPath..." rows="1"
+                        autofocus></textarea>
+                    <button id="sendBtn" class="send-btn" title="Send message">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="input-hint">Press Enter to send, Shift+Enter for new line</div>
+            </div>
+        </main>
+
+        <!-- Debug Panel -->
+        <aside class="debug-panel" id="debugPanel">
+            <div class="debug-header">
+                <h2>🔍 Debug Info</h2>
+            </div>
+            <div class="debug-content" id="debugContent">
+                <div class="debug-placeholder">
+                    <p>Send a message to see response metadata here.</p>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+
+</html>
