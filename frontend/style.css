@@ -10,9 +10,6 @@
     --text-muted: #666666;
     --accent: #ffffff;
     --accent-dim: #cccccc;
-    --success: #ffffff;
-    --warning: #cccccc;
-    --danger: #999999;
     --border: #222222;
     --border-light: #333333;
     --radius: 12px;
@@ -38,29 +35,57 @@ body {
 /* ===== Layout ===== */
 .app-container {
     display: grid;
-    grid-template-columns: 1fr 340px;
-    grid-template-rows: 60px 1fr;
+    /* Sidebar + Chat + Debug */
+    grid-template-columns: 260px 1fr 340px;
     height: 100vh;
 }
 
-.app-header {
-    grid-column: 1 / -1;
+/* ===== Sidebar ===== */
+.conversations-sidebar {
     background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.sidebar-header {
+    padding: 16px;
     border-bottom: 1px solid var(--border);
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    padding: 0 24px;
+}
+
+.new-chat-btn {
+    background: transparent;
+    border: 1px solid var(--border-light);
+    color: var(--text-secondary);
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+}
+
+.new-chat-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
 }
 
 .logo {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
 }
 
 .logo-icon {
-    width: 36px;
-    height: 36px;
+    width: 28px;
+    height: 28px;
     background: #ffffff;
     color: #000000;
     border-radius: var(--radius-sm);
@@ -68,19 +93,153 @@ body {
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: 13px;
+    font-size: 11px;
 }
 
 .logo h1 {
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 700;
     letter-spacing: -0.5px;
     color: #ffffff;
 }
 
-.logo .subtitle {
-    font-size: 12px;
+.conversations-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.conv-item {
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    background: transparent;
     color: var(--text-secondary);
+    font-size: 13px;
+    transition: var(--transition);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.conv-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.conv-item.active {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.conv-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+}
+
+.conv-title-input {
+    flex: 1;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    padding: 2px 4px;
+    border-radius: 4px;
+    outline: none;
+    width: 60%;
+    margin-right: 4px;
+}
+
+.conv-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: var(--transition);
+}
+
+.conv-item:hover .conv-actions,
+.conv-item.active .conv-actions {
+    opacity: 1;
+}
+
+.conv-actions button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+}
+
+.conv-actions button:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-footer {
+    padding: 16px;
+    border-top: 1px solid var(--border);
+}
+
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--border-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.user-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.user-info span {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.sign-out-ui-btn {
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    border: 1px solid var(--border-light);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+}
+
+.sign-out-ui-btn:hover {
+    background: rgba(255, 77, 79, 0.08);
+    border-color: rgba(255, 77, 79, 0.3);
+    color: #ff4d4f;
 }
 
 /* ===== Chat Area ===== */
@@ -88,6 +247,7 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    background: var(--bg-primary);
 }
 
 .chat-messages {
@@ -155,7 +315,7 @@ body {
     color: #000000;
 }
 
-.user-avatar {
+.user-avatar-msg {
     background: var(--bg-tertiary);
     border: 1px solid var(--border-light);
     color: var(--text-secondary);
@@ -203,11 +363,15 @@ body {
     gap: 8px;
 }
 
+.sidebar-loading,
 .loading-dots {
     display: flex;
     gap: 4px;
+    justify-content: center;
+    padding: 20px;
 }
 
+.sidebar-loading span,
 .loading-dots span {
     width: 6px;
     height: 6px;
@@ -222,6 +386,10 @@ body {
 
 .loading-dots span:nth-child(3) {
     animation-delay: 0.4s;
+}
+
+.sidebar-loading span {
+    background: var(--border-light);
 }
 
 @keyframes bounce {
@@ -240,15 +408,14 @@ body {
 /* ===== Input Area ===== */
 .chat-input-area {
     padding: 16px 24px;
-    border-top: 1px solid var(--border);
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
 }
 
 .input-wrapper {
     display: flex;
     align-items: flex-end;
     gap: 8px;
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 8px 8px 8px 16px;
@@ -273,8 +440,8 @@ textarea {
     max-height: 120px;
 }
 
-textarea::placeholder {
-    color: var(--text-muted);
+textarea:disabled {
+    opacity: 0.5;
 }
 
 .send-btn {
@@ -292,7 +459,7 @@ textarea::placeholder {
     flex-shrink: 0;
 }
 
-.send-btn:hover {
+.send-btn:hover:not(:disabled) {
     background: #e0e0e0;
     transform: scale(1.05);
 }
@@ -300,7 +467,6 @@ textarea::placeholder {
 .send-btn:disabled {
     opacity: 0.3;
     cursor: not-allowed;
-    transform: none;
 }
 
 .input-hint {
@@ -316,62 +482,22 @@ textarea::placeholder {
     border-left: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    transition: width 0.3s ease;
-}
-
-.debug-panel.collapsed {
-    width: 48px;
-    min-width: 48px;
 }
 
 .debug-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
+    padding: 16px;
     border-bottom: 1px solid var(--border);
 }
 
 .debug-header h2 {
     font-size: 14px;
     font-weight: 600;
-    white-space: nowrap;
-}
-
-.debug-toggle {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: var(--transition);
-    font-size: 12px;
-    flex-shrink: 0;
-}
-
-.debug-toggle:hover {
-    background: var(--bg-hover);
 }
 
 .debug-content {
     flex: 1;
     overflow-y: auto;
     padding: 16px;
-}
-
-.debug-content::-webkit-scrollbar {
-    width: 4px;
-}
-
-.debug-content::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 2px;
 }
 
 .debug-placeholder {
@@ -381,14 +507,12 @@ textarea::placeholder {
     font-size: 13px;
 }
 
-/* ===== Debug Cards ===== */
 .debug-card {
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     padding: 12px;
     margin-bottom: 12px;
-    animation: fadeIn 0.3s ease;
 }
 
 .debug-card-title {
@@ -418,7 +542,6 @@ textarea::placeholder {
     color: #ffffff;
 }
 
-/* Badges */
 .badge {
     display: inline-block;
     padding: 2px 8px;
@@ -426,7 +549,6 @@ textarea::placeholder {
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
 }
 
 .badge-simple {
@@ -454,7 +576,6 @@ textarea::placeholder {
     border: 1px solid var(--border-light);
 }
 
-/* Sources list */
 .source-item {
     display: flex;
     align-items: center;
@@ -470,15 +591,83 @@ textarea::placeholder {
 }
 
 .source-score {
-    font-family: 'SF Mono', 'Consolas', monospace;
+    font-family: 'SF Mono', monospace;
     font-size: 11px;
     color: #ffffff;
 }
 
-/* ===== Responsive ===== */
+/* ===== Auth Modal ===== */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+
+.modal-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.modal-content {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: var(--shadow);
+}
+
+.modal-header {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.modal-header h2 {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.modal-header p {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.auth-btn {
+    width: 100%;
+    padding: 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    transition: var(--transition);
+}
+
+.auth-btn:hover {
+    background: var(--border-light);
+}
+
 @media (max-width: 768px) {
     .app-container {
-        grid-template-columns: 1fr;
+        grid-template-columns: 240px 1fr;
     }
 
     .debug-panel {

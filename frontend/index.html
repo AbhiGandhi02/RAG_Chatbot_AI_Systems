@@ -11,21 +11,75 @@
 </head>
 
 <body>
+    <!-- Auth Modal Overlay -->
+    <div id="authModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Welcome to ClearPath</h2>
+                <p>Sign in to access support and save your chat history.</p>
+            </div>
+            <div class="modal-body">
+                <button id="googleSignInBtn" class="auth-btn google-btn">
+                    <svg viewBox="0 0 24 24" width="20" height="20">
+                        <path fill="#4285F4"
+                            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                        <path fill="#34A853"
+                            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                        <path fill="#FBBC05"
+                            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                        <path fill="#EA4335"
+                            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                    </svg>
+                    Continue with Google
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div class="app-container">
-        <!-- Sidebar / Header -->
-        <header class="app-header">
-            <div class="logo">
-                <div class="logo-icon">CP</div>
-                <div>
-                    <h1>ClearPath</h1>
-                    <span class="subtitle">Support Assistant</span>
+        <!-- Sidebar for Conversations -->
+        <aside class="conversations-sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">CP</div>
+                    <div>
+                        <h1>ClearPath</h1>
+                    </div>
+                </div>
+                <button id="newChatBtn" class="new-chat-btn" title="New Chat">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 5V19M5 12H19" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="conversations-list" id="conversationsList">
+                <div class="sidebar-loading">
+                    <span></span><span></span><span></span>
                 </div>
             </div>
-            <button id="newChatBtn"
-                style="margin-left:auto;background:transparent;border:1px solid #333;color:#999;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;transition:all 0.2s;"
-                onmouseover="this.style.borderColor='#fff';this.style.color='#fff'"
-                onmouseout="this.style.borderColor='#333';this.style.color='#999'">+ New Chat</button>
-        </header>
+
+            <div class="sidebar-footer">
+                <div class="user-profile" id="userProfile"
+                    style="display: none; flex-direction: column; gap: 12px; width: 100%; align-items: stretch;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div class="user-avatar" id="userAvatar">U</div>
+                        <div class="user-info" style="flex: 1; overflow: hidden;">
+                            <span id="userName"
+                                style="display:block; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">User</span>
+                        </div>
+                    </div>
+                    <button id="signOutBtn" class="sign-out-ui-btn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" style="margin-right:6px;">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>Sign Out
+                    </button>
+                </div>
+            </div>
+        </aside>
 
         <!-- Main Chat Area -->
         <main class="chat-area">
@@ -44,9 +98,8 @@
             <!-- Input Area -->
             <div class="chat-input-area">
                 <div class="input-wrapper">
-                    <textarea id="messageInput" placeholder="Ask a question about ClearPath..." rows="1"
-                        autofocus></textarea>
-                    <button id="sendBtn" class="send-btn" title="Send message">
+                    <textarea id="messageInput" placeholder="Sign in to ask a question..." rows="1" disabled></textarea>
+                    <button id="sendBtn" class="send-btn" title="Send message" disabled>
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2">
                             <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" />
@@ -70,7 +123,8 @@
         </aside>
     </div>
 
-    <script src="/static/script.js"></script>
+    <!-- Use type="module" so we can import Firebase v9 SDK -->
+    <script type="module" src="/static/script.js"></script>
 </body>
 
 </html>

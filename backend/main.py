@@ -5,19 +5,23 @@ Main entry point. Serves the POST /query endpoint and the frontend chat UI.
 Orchestrates: Router → Retriever → LLM → Evaluator → Response
 """
 
-import uuid
 import logging
-import time
-from collections import OrderedDict
+import json
+import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
-import os
-import json
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.models.schemas import QueryRequest, QueryResponse, Metadata, Source, TokenUsage
+from backend.db.database import get_db
+from backend.db.models import User
+from backend.db import crud
+from backend.auth.dependencies import get_current_user
+
+from backend.models.schemas import QueryRequest, QueryResponse, Metadata, Source, TokenUsage, ConversationUpdate
 from backend.router.classifier import classify_query, create_routing_log
 from backend.rag.retriever import Retriever
 from backend.llm.groq_client import get_groq_client
@@ -35,37 +39,6 @@ logger = logging.getLogger(__name__)
 retriever = None
 groq_client = None
 
-# Conversation memory store — sliding window of last N turns per conversation
-MAX_HISTORY_TURNS = 5    # Keep last 5 exchanges per conversation
-MAX_CONVERSATIONS = 1000  # Evict oldest after this limit
-conversation_store = OrderedDict()  # {conversation_id: [{"role": ..., "content": ...}, ...]}
-
-
-def get_conversation_history(conversation_id: str):
-    """Get conversation history for a given ID."""
-    return conversation_store.get(conversation_id, [])
-
-
-def store_turn(conversation_id: str, user_question: str, assistant_answer: str):
-    """Store a conversation turn (user + assistant) with sliding window."""
-    if conversation_id not in conversation_store:
-        # Evict oldest conversation if at capacity
-        if len(conversation_store) >= MAX_CONVERSATIONS:
-            conversation_store.popitem(last=False)
-        conversation_store[conversation_id] = []
-    
-    history = conversation_store[conversation_id]
-    # Add the new turn
-    history.append({"role": "user", "content": user_question})
-    # Truncate assistant answer to save tokens (max 200 chars)
-    short_answer = assistant_answer[:200] + "..." if len(assistant_answer) > 200 else assistant_answer
-    history.append({"role": "assistant", "content": short_answer})
-    
-    # Enforce sliding window — keep last N turns (each turn = 2 messages)
-    max_messages = MAX_HISTORY_TURNS * 2
-    if len(history) > max_messages:
-        conversation_store[conversation_id] = history[-max_messages:]
-
 
 @asynccontextmanager
 async def lifespan(app):
@@ -73,8 +46,6 @@ async def lifespan(app):
     global retriever, groq_client
     
     logger.info("Initializing ClearPath RAG Chatbot...")
-    
-    # Initialize retriever (loads FAISS index)
     try:
         retriever = Retriever()
         logger.info("Retriever initialized successfully.")
@@ -83,7 +54,6 @@ async def lifespan(app):
         logger.error("Run 'python -m backend.rag.embeddings' first to build the index.")
         raise
     
-    # Initialize Groq client
     try:
         groq_client = get_groq_client()
         logger.info("Groq client initialized successfully.")
@@ -95,7 +65,6 @@ async def lifespan(app):
     yield
 
 
-# Initialize FastAPI with lifespan
 app = FastAPI(
     title="ClearPath RAG Chatbot",
     description="Customer support chatbot for ClearPath project management tool",
@@ -103,7 +72,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -113,179 +81,170 @@ app.add_middleware(
 )
 
 
-@app.post("/query", response_model=QueryResponse)
-async def query(request: QueryRequest):
-    """
-    Main chatbot endpoint.
+# --- Conversation History Helpers ---
+
+def generate_conversation_title(question: str) -> str:
+    """Generate a short title based on the user's first question using Groq."""
+    prompt = f"Write a short, concise 3 to 5 word title for a conversation that starts with this question:\n\n{question}\n\nDo not include quotes or extra text. Just the title."
+    try:
+        if groq_client:
+            result = groq_client.generate(prompt, "", "llama-3.1-8b-instant")
+            # Clear markdown bold asterisks and quotes
+            return result["answer"].replace('*', '').strip(' "''')
+    except Exception as e:
+        logger.error(f"Title generation failed: {e}")
+    return question[:30] + "..." if len(question) > 30 else question
+
+
+async def get_or_create_conversation(db: AsyncSession, user: User, conversation_id: str = None, question: str = None):
+    if conversation_id:
+        conv = await crud.get_conversation(db, conversation_id, user.id)
+        if not conv:
+            raise HTTPException(status_code=403, detail="Conversation not found or access denied.")
+        return conv
+        
+    title = generate_conversation_title(question) if question else "New Chat"
+    return await crud.create_conversation(db, user.id, title=title)
+
+
+async def get_formatted_history(db: AsyncSession, conversation_id: str, max_turns: int = 5):
+    """Fetch history from DB and format for Groq LLM (list of dicts)."""
+    messages = await crud.get_conversation_messages(db, conversation_id)
+    # Get last N messages based on turns (each turn = 2 messages: user + assistant)
+    recent_messages = messages[-(max_turns * 2):] if len(messages) > max_turns * 2 else messages
     
-    Orchestration:
-    1. Router classifies query → picks model
-    2. Retriever finds top-k relevant chunks
-    3. LLM generates response with context
-    4. Evaluator checks response → flags
-    5. Return structured response
-    """
+    history = []
+    for msg in recent_messages:
+        # We truncated assistant answers to 200 chars in memory before, do same here for context
+        content = msg.content
+        if msg.role == "assistant" and len(content) > 500:
+            content = content[:500] + "..."
+            
+        history.append({
+            "role": msg.role,
+            "content": content
+        })
+    return history
+
+
+# --- Main Endpoints ---
+
+@app.post("/query", response_model=QueryResponse)
+async def query(
+    request: QueryRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Main chatbot endpoint."""
     if not request.question or not request.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
     
     question = request.question.strip()
-    conversation_id = request.conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
     
-    # Step 1: Route the query
+    # Get or create DB Conversation
+    conv = await get_or_create_conversation(db, current_user, request.conversation_id, question=question)
+    
     routing = classify_query(question)
     classification = routing["classification"]
     model_used = routing["model_used"]
     
-    logger.info(f"Query: \"{question[:80]}...\" → {classification} → {model_used}")
-    logger.info(f"  Routing signals: {routing['signals']}")
+    is_greeting = ("greeting_detected" in routing.get("signals", []) and len(question.split()) <= 5)
     
-    # Step 2: Handle pure greetings differently — no need to search docs
-    # Only skip retrieval for short greetings like "Hi!" or "Hello"
-    # NOT for "Hi, what is the pricing?" which contains an actual question
-    is_greeting = ("greeting_detected" in routing.get("signals", []) 
-                   and len(question.split()) <= 5)
+    history = await get_formatted_history(db, conv.id)
     
     if is_greeting:
-        # For greetings, skip retrieval and respond naturally
         retrieved_chunks = []
         chunks_retrieved = 0
-        greeting_context = "The user is greeting you. Respond warmly and let them know you can help with ClearPath questions about features, pricing, setup, troubleshooting, and more."
-        history = get_conversation_history(conversation_id)
-        llm_result = groq_client.generate(question, greeting_context, model_used, conversation_history=history)
+        context = "The user is greeting you. Respond warmly."
+        llm_result = groq_client.generate(question, context, model_used, conversation_history=history)
         evaluator_flags = []
     else:
-        # Normal flow: retrieve docs and evaluate
-        retrieved_chunks = retriever.retrieve(question)
+        retrieved_chunks = await retriever.retrieve_async(question)
         chunks_retrieved = len(retrieved_chunks)
-        
-        logger.info(f"  Retrieved {chunks_retrieved} chunks")
-        
-        # Step 3: Build context and generate response with conversation history
         context = retriever.build_context(retrieved_chunks)
-        history = get_conversation_history(conversation_id)
         llm_result = groq_client.generate(question, context, model_used, conversation_history=history)
-        
-        # Step 4: Evaluate the response
         evaluator_flags = evaluate_response(llm_result["answer"], chunks_retrieved, retrieved_chunks)
     
-    # Extract results from LLM
     answer = llm_result["answer"]
-    tokens_input = llm_result["tokens_input"]
-    tokens_output = llm_result["tokens_output"]
-    latency_ms = llm_result["latency_ms"]
     
-    # Add warning message if flagged
     warning = get_warning_message(evaluator_flags)
     if warning:
         answer = f"{warning}\n\n{answer}"
-        logger.info(f"  Evaluator flags: {evaluator_flags}")
     
-    # Log routing decision (required format)
-    routing_log = create_routing_log(
-        query=question,
-        classification=classification,
-        model_used=model_used,
-        tokens_input=tokens_input,
-        tokens_output=tokens_output,
-        latency_ms=latency_ms
-    )
-    logger.info(f"  Routing log: {routing_log}")
+    # Save the new turn to the DB
+    await crud.add_message(db, conv.id, "user", question)
+    await crud.add_message(db, conv.id, "assistant", answer)
     
-    # Step 5: Build response
-    sources = [
-        Source(
-            document=chunk["document"],
-            page=chunk["page"],
-            relevance_score=chunk.get("relevance_score")
-        )
-        for chunk in retrieved_chunks
-    ]
+    sources = [Source(document=c["document"], page=c["page"], relevance_score=c.get("relevance_score")) for c in retrieved_chunks]
     
-    response = QueryResponse(
+    return QueryResponse(
         answer=answer,
         metadata=Metadata(
             model_used=model_used,
             classification=classification,
-            tokens=TokenUsage(input=tokens_input, output=tokens_output),
-            latency_ms=latency_ms,
+            tokens=TokenUsage(input=llm_result["tokens_input"], output=llm_result["tokens_output"]),
+            latency_ms=llm_result["latency_ms"],
             chunks_retrieved=chunks_retrieved,
             evaluator_flags=evaluator_flags
         ),
         sources=sources,
-        conversation_id=conversation_id
+        conversation_id=conv.id
     )
-    
-    # Store this turn in conversation memory
-    store_turn(conversation_id, question, answer)
-    logger.info(f"  Memory: {len(get_conversation_history(conversation_id)) // 2} turns stored for {conversation_id}")
-    
-    return response
 
 
 @app.post("/query/stream")
-async def query_stream(request: QueryRequest):
-    """
-    Streaming endpoint — returns tokens via Server-Sent Events (SSE).
-    Same pipeline as /query but streams the LLM response token-by-token.
-    """
+async def query_stream(
+    request: QueryRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Streaming endpoint — returns tokens via Server-Sent Events (SSE)."""
     if not request.question or not request.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
     
     question = request.question.strip()
-    conversation_id = request.conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
     
-    # Steps 1-2: Route and retrieve (non-streamed, fast)
+    conv = await get_or_create_conversation(db, current_user, request.conversation_id, question=question)
+    
     routing = classify_query(question)
     classification = routing["classification"]
     model_used = routing["model_used"]
     
-    is_greeting = ("greeting_detected" in routing.get("signals", [])
-                   and len(question.split()) <= 5)
+    is_greeting = ("greeting_detected" in routing.get("signals", []) and len(question.split()) <= 5)
+    
+    history = await get_formatted_history(db, conv.id)
     
     if is_greeting:
         retrieved_chunks = []
-        context = "The user is greeting you. Respond warmly and let them know you can help with ClearPath questions."
+        context = "The user is greeting you. Respond warmly."
     else:
-        retrieved_chunks = retriever.retrieve(question)
+        retrieved_chunks = await retriever.retrieve_async(question)
         context = retriever.build_context(retrieved_chunks)
     
-    history = get_conversation_history(conversation_id)
+    sources = [{"document": c["document"], "page": c["page"], "relevance_score": c.get("relevance_score")} for c in retrieved_chunks]
     
-    # Build sources for the metadata event
-    sources = [
-        {"document": c["document"], "page": c["page"], "relevance_score": c.get("relevance_score")}
-        for c in retrieved_chunks
-    ]
-    evaluator_flags = []  # Will be computed after full response
-    
-    def event_generator():
+    async def event_generator():
         full_answer = ""
-        
-        # Send metadata first
         meta_event = {
             "type": "metadata",
             "classification": classification,
             "model_used": model_used,
             "chunks_retrieved": len(retrieved_chunks),
             "sources": sources,
-            "conversation_id": conversation_id
+            "conversation_id": conv.id
         }
         yield f"data: {json.dumps(meta_event)}\n\n"
         
-        # Stream tokens
         for chunk in groq_client.generate_stream(question, context, model_used, conversation_history=history):
             if chunk["type"] == "token":
                 full_answer += chunk["content"]
                 yield f"data: {json.dumps(chunk)}\n\n"
             elif chunk["type"] == "done":
-                # Evaluate the full response
-                if not is_greeting:
-                    flags = evaluate_response(full_answer, len(retrieved_chunks), retrieved_chunks)
-                else:
-                    flags = []
+                flags = [] if is_greeting else evaluate_response(full_answer, len(retrieved_chunks), retrieved_chunks)
                 
-                # Store in conversation memory
-                store_turn(conversation_id, question, full_answer)
+                # Save to DB inside the generator
+                await crud.add_message(db, conv.id, "user", question)
+                await crud.add_message(db, conv.id, "assistant", full_answer)
                 
                 done_event = {
                     "type": "done",
@@ -298,33 +257,79 @@ async def query_stream(request: QueryRequest):
             elif chunk["type"] == "error":
                 yield f"data: {json.dumps(chunk)}\n\n"
     
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-    )
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-# Serve the frontend
+# --- CRUD Endpoints for UI ---
+
+@app.get("/conversations")
+async def list_conversations(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """List all conversations for the authenticated user."""
+    convs = await crud.get_user_conversations(db, current_user.id)
+    return [{"id": c.id, "title": c.title, "updated_at": c.updated_at} for c in convs]
+
+
+@app.get("/conversations/{conversation_id}")
+async def get_conversation_history_api(
+    conversation_id: str, 
+    current_user: User = Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db)
+):
+    """Get full message history for a specific conversation."""
+    conv = await crud.get_conversation(db, conversation_id, current_user.id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+        
+    messages = await crud.get_conversation_messages(db, conversation_id)
+    return [{"role": m.role, "content": m.content, "created_at": m.created_at} for m in messages]
+
+
+@app.put("/conversations/{conversation_id}")
+async def rename_conversation_api(
+    conversation_id: str,
+    update_data: ConversationUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Rename a conversation."""
+    if not update_data.title or not update_data.title.strip():
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+        
+    conv = await crud.update_conversation(db, conversation_id, current_user.id, update_data.title.strip())
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "success", "title": conv.title}
+
+
+@app.delete("/conversations/{conversation_id}")
+async def delete_conversation_api(
+    conversation_id: str, 
+    current_user: User = Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a conversation."""
+    success = await crud.delete_conversation(db, conversation_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "success"}
+
+
+# --- Frontend & Health ---
+
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 if os.path.exists(frontend_dir):
     app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
 
-
 @app.get("/")
 async def serve_frontend():
-    """Serve the chat interface."""
     index_path = os.path.join(frontend_dir, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
-    return {"message": "ClearPath RAG Chatbot API is running. POST to /query to get started."}
-
+    return {"message": "ClearPath RAG API is running."}
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
-    return {"status": "ok", "service": "clearpath-chatbot"}
-
+    return {"status": "ok"}
 
 if __name__ == "__main__":
     import uvicorn

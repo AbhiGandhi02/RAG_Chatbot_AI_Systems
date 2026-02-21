@@ -12,6 +12,10 @@ class QueryRequest(BaseModel):
     conversation_id: Optional[str] = None
 
 
+class ConversationUpdate(BaseModel):
+    """Request body to rename a conversation."""
+    title: str
+
 class TokenUsage(BaseModel):
     """Token usage breakdown."""
     input: int
