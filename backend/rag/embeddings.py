@@ -1,7 +1,7 @@
 from typing import List, Dict
 import numpy as np
 import logging
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 from sqlalchemy.future import select
 from sqlalchemy import text
 from backend.db.database import AsyncSessionLocal
@@ -15,15 +15,18 @@ class EmbeddingService:
     
     def __init__(self, model_name: str = None):
         """Initialize the embedding model."""
-        model_name = model_name or EMBEDDING_MODEL
-        logger.info(f"Loading embedding model: {model_name}...")
-        self.model = SentenceTransformer(model_name)
+        # FastEmbed uses a slightly different default model name string
+        model_name = "sentence-transformers/all-MiniLM-L6-v2"
+        logger.info(f"Loading fastembed model: {model_name}...")
+        self.model = TextEmbedding(model_name=model_name)
         logger.info("Embedding model loaded.")
         
     def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generate normalized vector embeddings for a list of strings."""
         logger.info(f"Generating embeddings for {len(texts)} chunks...")
-        embeddings = self.model.encode(texts, show_progress_bar=True, normalize_embeddings=True)
+        # fastembed returns a generator of numpy arrays
+        embeddings = list(self.model.embed(texts))
+        
         # Convert numpy floats to standard python floats for pgvector
         embeddings_list = [emb.tolist() for emb in embeddings]
         return embeddings_list

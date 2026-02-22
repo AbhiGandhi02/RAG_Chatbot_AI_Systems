@@ -2,7 +2,7 @@ import logging
 from typing import List, Dict
 from sqlalchemy.future import select
 from sqlalchemy import text
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
 from backend.db.database import AsyncSessionLocal
 from backend.db.models import DocumentChunk
@@ -14,14 +14,15 @@ class Retriever:
     """Retrieves relevant document chunks from PostgreSQL using pgvector."""
     
     def __init__(self, model_name: str = None):
-        """Initialize retriever with the sentence-transformer model."""
-        model_name = model_name or EMBEDDING_MODEL
-        logger.info(f"Retriever loading model: {model_name}...")
-        self.model = SentenceTransformer(model_name)
+        """Initialize retriever with the fastembed model."""
+        model_name = "sentence-transformers/all-MiniLM-L6-v2"
+        logger.info(f"Retriever loading fastembed model: {model_name}...")
+        self.model = TextEmbedding(model_name=model_name)
     
     def embed_query(self, query: str) -> List[float]:
         """Embed a query string into a vector."""
-        embedding = self.model.encode([query], normalize_embeddings=True)
+        # fastembed returns a generator, so we wrap in list
+        embedding = list(self.model.embed([query]))
         return embedding[0].tolist()
         
     async def retrieve_async(self, query: str, top_k: int = None, threshold: float = None) -> List[Dict]:
