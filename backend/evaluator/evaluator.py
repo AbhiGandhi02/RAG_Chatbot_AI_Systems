@@ -79,15 +79,23 @@ def evaluate_response(
     flags = []
     answer_lower = answer.lower()
     
-    # Flag 1: no_context — LLM answered but no relevant chunks were retrieved
+    # Flag 1: no_context — No relevant chunks were retrieved
+    # pgvector always returns top-k results even if irrelevant, so we also
+    # check if all chunks have very low relevance scores (< 0.4)
+    effectively_no_context = False
     if chunks_retrieved == 0:
-        # Check if the answer is NOT a refusal (if it's a refusal, that flag takes priority)
-        is_refusal = _check_refusal(answer_lower)
-        if not is_refusal:
-            flags.append("no_context")
+        effectively_no_context = True
+    elif retrieved_chunks:
+        max_score = max((c.get("relevance_score", 0) for c in retrieved_chunks), default=0)
+        if max_score < 0.4:
+            effectively_no_context = True
+    
+    if effectively_no_context:
+        flags.append("no_context")
     
     # Flag 2: refusal — LLM explicitly refused or said it doesn't know
-    if _check_refusal(answer_lower):
+    # Only add refusal if we had relevant context but the LLM still refused
+    if _check_refusal(answer_lower) and not effectively_no_context:
         flags.append("refusal")
     
     # Flag 3: conflicting_info — Answer indicates conflicting information
@@ -153,4 +161,4 @@ def get_warning_message(flags: List[str]) -> str:
         warnings.append("the documentation may contain conflicting information")
     
     warning_text = " and ".join(warnings)
-    return f"⚠️ Low confidence — {warning_text}. Please verify with support."
+    return f"⚠️ Low confidence — {warning_text}. Please confirm with our support team."
