@@ -68,8 +68,8 @@ async def get_conversation_messages(db: AsyncSession, conversation_id: str) -> L
     )
     return list(result.scalars().all())
 
-async def add_message(db: AsyncSession, conversation_id: str, role: str, content: str) -> Message:
-    db_msg = Message(conversation_id=conversation_id, role=role, content=content)
+async def add_message(db: AsyncSession, conversation_id: str, role: str, content: str, metadata: dict = None) -> Message:
+    db_msg = Message(conversation_id=conversation_id, role=role, content=content, metadata_json=metadata)
     db.add(db_msg)
     
     # Touch the conversation updated_at

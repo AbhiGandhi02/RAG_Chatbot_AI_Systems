@@ -171,9 +171,19 @@ async def query(
     if warning:
         answer = f"{warning}\n\n{answer}"
     
+    msg_metadata = {
+        "model_used": model_used,
+        "classification": classification,
+        "tokens": {"input": llm_result["tokens_input"], "output": llm_result["tokens_output"]},
+        "latency_ms": llm_result["latency_ms"],
+        "chunks_retrieved": chunks_retrieved,
+        "evaluator_flags": evaluator_flags,
+        "sources": [{"document": c["document"], "page": c["page"], "relevance_score": c.get("relevance_score")} for c in retrieved_chunks]
+    }
+    
     # Save the new turn to the DB
     await crud.add_message(db, conv.id, "user", question)
-    await crud.add_message(db, conv.id, "assistant", answer)
+    await crud.add_message(db, conv.id, "assistant", answer, metadata=msg_metadata)
     
     sources = [Source(document=c["document"], page=c["page"], relevance_score=c.get("relevance_score")) for c in retrieved_chunks]
     
@@ -242,10 +252,22 @@ async def query_stream(
             elif chunk["type"] == "done":
                 flags = [] if is_greeting else evaluate_response(full_answer, len(retrieved_chunks), retrieved_chunks)
                 
+                msg_metadata = {
+                    "model_used": model_used,
+                    "classification": classification,
+                    "tokens": {
+                        "input": chunk["tokens_input"],
+                        "output": chunk["tokens_output"]
+                    },
+                    "latency_ms": chunk["latency_ms"],
+                    "chunks_retrieved": len(retrieved_chunks),
+                    "evaluator_flags": flags,
+                    "sources": sources
+                }
                 # Save to DB inside the generator using its own session context
                 async with AsyncSessionLocal() as stream_db:
                     await crud.add_message(stream_db, conv.id, "user", question)
-                    await crud.add_message(stream_db, conv.id, "assistant", full_answer)
+                    await crud.add_message(stream_db, conv.id, "assistant", full_answer, metadata=msg_metadata)
                     await stream_db.commit()
                 
                 done_event = {
@@ -299,7 +321,7 @@ async def get_conversation_history_api(
         raise HTTPException(status_code=404, detail="Conversation not found")
         
     messages = await crud.get_conversation_messages(db, conversation_id)
-    return [{"role": m.role, "content": m.content, "created_at": m.created_at} for m in messages]
+    return [{"role": m.role, "content": m.content, "created_at": m.created_at, "metadata": m.metadata_json} for m in messages]
 
 
 @app.put("/conversations/{conversation_id}")

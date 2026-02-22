@@ -284,8 +284,37 @@ async function selectConversation(convId) {
 
         history.forEach(msg => {
             const isUser = msg.role === 'user';
-            addMessage(msg.content, isUser ? 'user' : 'bot', [], true);
+            const msgEl = addMessage(msg.content, isUser ? 'user' : 'bot', [], true);
+
+            if (!isUser && msg.metadata) {
+                // If it has flags, add the warning badge retroactively
+                if (msg.metadata.evaluator_flags && msg.metadata.evaluator_flags.length > 0) {
+                    const warningBadge = document.createElement('div');
+                    warningBadge.className = 'warning-badge';
+                    warningBadge.textContent = `⚠️ Flagged: ${msg.metadata.evaluator_flags.join(', ')}`;
+                    const contentDiv = msgEl.querySelector('.message-content div:last-child');
+                    msgEl.querySelector('.message-content').insertBefore(warningBadge, contentDiv);
+                }
+
+                // Make message clickable to view debug info
+                msgEl.style.cursor = 'pointer';
+                msgEl.title = "Click to view debug info";
+                msgEl.addEventListener('click', () => {
+                    updateDebugPanel({
+                        metadata: msg.metadata,
+                        sources: msg.metadata.sources || []
+                    });
+                });
+            }
         });
+        // Auto-populate the debug panel with the most recent assistant message
+        const lastAssistantMsg = [...history].reverse().find(m => m.role === 'assistant' && m.metadata);
+        if (lastAssistantMsg) {
+            updateDebugPanel({
+                metadata: lastAssistantMsg.metadata,
+                sources: lastAssistantMsg.metadata.sources || []
+            });
+        }
 
         chatMessages.scrollTop = chatMessages.scrollHeight;
 
@@ -431,15 +460,17 @@ async function sendMessage() {
                     contentDiv.innerHTML = formatText(fullAnswer);
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 } else if (data.type === 'done') {
+                    const fullMetadata = {
+                        model_used: streamMeta.model_used || '',
+                        classification: streamMeta.classification || 'simple',
+                        tokens: { input: data.tokens_input, output: data.tokens_output },
+                        latency_ms: data.latency_ms,
+                        chunks_retrieved: streamMeta.chunks_retrieved || 0,
+                        evaluator_flags: data.evaluator_flags || []
+                    };
+
                     updateDebugPanel({
-                        metadata: {
-                            model_used: streamMeta.model_used || '',
-                            classification: streamMeta.classification || 'simple',
-                            tokens: { input: data.tokens_input, output: data.tokens_output },
-                            latency_ms: data.latency_ms,
-                            chunks_retrieved: streamMeta.chunks_retrieved || 0,
-                            evaluator_flags: data.evaluator_flags || []
-                        },
+                        metadata: fullMetadata,
                         sources: streamMeta.sources || []
                     });
 
@@ -449,6 +480,16 @@ async function sendMessage() {
                         warningBadge.textContent = `⚠️ Flagged: ${data.evaluator_flags.join(', ')}`;
                         botMsg.querySelector('.message-content').insertBefore(warningBadge, contentDiv);
                     }
+
+                    // Make freshly generated message clickable too
+                    botMsg.style.cursor = 'pointer';
+                    botMsg.title = "Click to view debug info";
+                    botMsg.addEventListener('click', () => {
+                        updateDebugPanel({
+                            metadata: fullMetadata,
+                            sources: streamMeta.sources || []
+                        });
+                    });
                 } else if (data.type === 'error') {
                     contentDiv.textContent = `Error: ${data.content}`;
                 }
@@ -536,36 +577,46 @@ function formatText(text) {
 
 function updateDebugPanel(data) {
     const { metadata, sources } = data;
-    const classificationBadge = metadata.classification === 'simple'
+    const classification = metadata.classification || 'simple';
+    const modelUsed = metadata.model_used || 'unknown';
+    const tokensInput = (metadata.tokens && metadata.tokens.input) || 0;
+    const tokensOutput = (metadata.tokens && metadata.tokens.output) || 0;
+    const latencyMs = metadata.latency_ms || 0;
+    const chunksRetrieved = metadata.chunks_retrieved || 0;
+    const evalFlags = metadata.evaluator_flags || [];
+    const srcList = sources || [];
+
+    const classificationBadge = classification === 'simple'
         ? '<span class="badge badge-simple">Simple</span>'
         : '<span class="badge badge-complex">Complex</span>';
 
-    const flagsHtml = metadata.evaluator_flags.length > 0
-        ? metadata.evaluator_flags.map(f => `<span class="badge badge-flag">${f}</span>`).join(' ')
+    const flagsHtml = evalFlags.length > 0
+        ? evalFlags.map(f => `<span class="badge badge-flag">${f}</span>`).join(' ')
         : '<span class="badge badge-ok">None</span>';
 
-    const sourcesHtml = sources.length > 0
-        ? sources.map(s => `<div class="source-item"><span>📄 ${s.document}</span>${s.relevance_score ? `<span class="source-score">${(s.relevance_score * 100).toFixed(0)}%</span>` : ''}</div>`).join('')
+    const sourcesHtml = srcList.length > 0
+        ? srcList.map(s => `<div class="source-item"><span>📄 ${s.document || 'Unknown'}</span>${s.relevance_score ? `<span class="source-score">${(s.relevance_score * 100).toFixed(0)}%</span>` : ''}</div>`).join('')
         : '<div class="source-item">No sources retrieved</div>';
 
     debugContent.innerHTML = `
         <div class="debug-card">
             <div class="debug-card-title">Model & Routing</div>
             <div class="debug-row"><span class="debug-label">Classification</span>${classificationBadge}</div>
-            <div class="debug-row"><span class="debug-label">Model</span><span class="debug-value">${shortenModelName(metadata.model_used)}</span></div>
+            <div class="debug-row"><span class="debug-label">Model</span><span class="debug-value">${shortenModelName(modelUsed)}</span></div>
         </div>
         <div class="debug-card">
             <div class="debug-card-title">Token Usage</div>
-            <div class="debug-row"><span class="debug-label">Input</span><span class="debug-value">${metadata.tokens.input.toLocaleString()}</span></div>
-            <div class="debug-row"><span class="debug-label">Output</span><span class="debug-value">${metadata.tokens.output.toLocaleString()}</span></div>
-            <div class="debug-row"><span class="debug-label">Latency</span><span class="debug-value">${metadata.latency_ms}ms</span></div>
+            <div class="debug-row"><span class="debug-label">Input</span><span class="debug-value">${tokensInput.toLocaleString()}</span></div>
+            <div class="debug-row"><span class="debug-label">Output</span><span class="debug-value">${tokensOutput.toLocaleString()}</span></div>
+            <div class="debug-row"><span class="debug-label">Latency</span><span class="debug-value">${latencyMs}ms</span></div>
+            <div class="debug-row"><span class="debug-label">Chunks Retrieved</span><span class="debug-value">${chunksRetrieved}</span></div>
         </div>
         <div class="debug-card">
             <div class="debug-card-title">Evaluator Flags</div>
             <div style="padding: 4px 0;">${flagsHtml}</div>
         </div>
         <div class="debug-card">
-            <div class="debug-card-title">Sources (${sources.length} chunks)</div>
+            <div class="debug-card-title">Sources (${srcList.length} chunks)</div>
             ${sourcesHtml}
         </div>
     `;

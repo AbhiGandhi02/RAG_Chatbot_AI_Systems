@@ -1,11 +1,11 @@
 # ClearPath RAG Chatbot
 
-A **Retrieval-Augmented Generation (RAG)** customer support chatbot for ClearPath, a project management platform. Built with FastAPI, FAISS, sentence-transformers, and Groq LLM API.
+A **Retrieval-Augmented Generation (RAG)** customer support chatbot for ClearPath, a project management platform. Built with FastAPI, PostgreSQL/pgvector, fastembed, and Groq LLM API.
 
 ## Architecture
 
 ```
-User Query → Router (classify) → Retriever (FAISS search) → LLM (Groq) → Evaluator → Response
+User Query → Router (classify) → Retriever (pgvector search) → LLM (Groq) → Evaluator → Response
 ```
 
 ### Three-Layer Pipeline
@@ -13,7 +13,7 @@ User Query → Router (classify) → Retriever (FAISS search) → LLM (Groq) →
 | Layer | Component | Purpose |
 |-------|-----------|---------|
 | **Layer 1: Model Router** | Deterministic Rule-Based Classifier | Routes queries using a custom 6-signal complexity scorer heuristics. Simple queries (score < 2) → 8B, Complex queries (score ≥ 2) → 70B. No LLMs used for decision-making. |
-| **Layer 2: RAG Retriever** | `PyPDF2` + Recursive Chunking + FAISS | Custom-built extraction and chunking pipeline (no external RAG services). FAISS vector search retrieves relevant context. |
+| **Layer 2: RAG Retriever** | `PyPDF2` + Recursive Chunking + pgvector | Custom-built extraction and chunking pipeline (no external RAG services). pgvector similarity search retrieves relevant context. |
 | **Layer 3: Output Evaluator** | Flagged Validations | Evaluates LLM output post-generation for `no_context`, `refusal` (non-answers), and `conflicting_info` (domain-specific check). Flags trigger a low-confidence UI warning. |
 
 ### Note on Chunking Strategy (Assignment Requirement)
@@ -27,9 +27,11 @@ Chunks are generated using a manual **Recursive Character Text Splitter**.
 | Component | Technology |
 |-----------|-----------|
 | Backend | FastAPI + Uvicorn |
-| Embeddings | sentence-transformers (`all-MiniLM-L6-v2`) |
-| Vector Store | FAISS (IndexFlatIP, cosine similarity) |
+| Database | PostgreSQL + pgvector (Supabase) |
+| Embeddings | fastembed (`all-MiniLM-L6-v2`, ONNX runtime) |
+| Vector Store | pgvector with HNSW index (cosine similarity) |
 | LLM | Groq API (Llama 3.1 8B + Llama 3.3 70B) |
+| Auth | Firebase Admin SDK (Google Sign-In) |
 | Frontend | Vanilla HTML/CSS/JS |
 
 ---
@@ -39,6 +41,8 @@ Chunks are generated using a manual **Recursive Character Text Splitter**.
 ### Prerequisites
 - Python 3.10+
 - Groq API key ([get one here](https://console.groq.com/keys))
+- Supabase project (free, for PostgreSQL + pgvector)
+- Firebase project (for Google Sign-In authentication)
 
 ### 1. Clone & Install
 
@@ -61,32 +65,27 @@ pip install -r requirements.txt
 
 ### 2. Configure Environment
 
+1. Create a `.env` file in the root directory (see `.env.example` for reference):
 ```bash
-# Create .env file
-echo GROQ_API_KEY=your_api_key_here > .env
-echo PORT=8000 >> .env
+GROQ_API_KEY=your_groq_api_key_here
+DATABASE_URL=postgresql+asyncpg://postgres:[YOUR-PASSWORD]@aws-0-us-west-1.pooler.supabase.com:6543/postgres
+PORT=8000
+
+# Firebase Config (for frontend auth)
+FIREBASE_API_KEY=your_key
+FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+FIREBASE_PROJECT_ID=your_project_id
+FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+FIREBASE_APP_ID=your_app_id
 ```
 
-### 3. Build the Index (first time only)
+2. Download your Firebase Admin SDK service account credentials and place the file in the root directory exactly named `serviceAccountKey.json`.
+
+### 3. Build the Database Vectors (first time only)
 
 ```bash
-python -c "
-from backend.rag.pdf_parser import extract_all_pdfs
-from backend.rag.chunker import chunk_pages
-from backend.rag.embeddings import EmbeddingIndex
-import json, os
-
-pages = extract_all_pdfs('docs')
-chunks = chunk_pages(pages)
-os.makedirs('data', exist_ok=True)
-with open('data/chunks.json', 'w') as f:
-    json.dump(chunks, f, indent=2)
-
-idx = EmbeddingIndex()
-idx.build_index(chunks)
-idx.save('data/faiss_index')
-print(f'Index built: {len(chunks)} chunks')
-"
+python -m backend.rag.embeddings
 ```
 
 ### 4. Run the Server
@@ -140,29 +139,36 @@ Returns `{ "status": "ok" }`.
 ```
 AI_System_Assignment/
 ├── backend/
-│   ├── main.py                 # FastAPI app, /query endpoint
+│   ├── main.py                 # FastAPI app, /query and /query/stream endpoints
 │   ├── config.py               # Centralized configuration
+│   ├── db/
+│   │   ├── database.py         # SQLAlchemy async engine + session factory
+│   │   ├── models.py           # User, Conversation, Message, DocumentChunk (pgvector)
+│   │   └── crud.py             # Database CRUD operations
 │   ├── rag/
 │   │   ├── pdf_parser.py       # PDF text extraction (PyPDF2)
 │   │   ├── chunker.py          # Recursive text chunking (500 chars, 100 overlap)
-│   │   ├── embeddings.py       # Embedding generation + FAISS index
-│   │   └── retriever.py        # Similarity search + context builder
+│   │   ├── embeddings.py       # Embedding generation + pgvector insertion (fastembed)
+│   │   └── retriever.py        # Cosine similarity search + context builder
 │   ├── router/
 │   │   └── classifier.py       # Deterministic rule-based query classifier (6 signals)
 │   ├── llm/
-│   │   └── groq_client.py      # Groq API wrapper with token tracking
+│   │   └── groq_client.py      # Groq API wrapper with streaming + token tracking
 │   ├── evaluator/
 │   │   └── evaluator.py        # Output evaluation (3 flags including custom check)
 │   └── models/
 │       └── schemas.py          # Pydantic request/response models
 ├── frontend/
-│   ├── index.html              # Chat interface
-│   ├── style.css               # Black & white theme
-│   └── script.js               # Chat logic + debug panel
+│   ├── index.html              # Chat interface with Firebase Google Sign-In
+│   ├── style.css               # Dark theme styling
+│   └── script.js               # Chat logic, streaming, clickable debug panel
 ├── docs/                       # 30 source PDFs
-├── data/                       # Generated chunks + FAISS index
+├── .env.example                # Environment variable template
+├── .python-version             # Pinned to 3.10.0 for Render deployment
 ├── requirements.txt
+├── eval_harness.py             # Automated evaluation test suite
 ├── written_answers.md
+├── bonus_challenges.md
 └── README.md
 ```
 

@@ -114,3 +114,30 @@ Since AWS is not an option for now and we want a free, low-maintenance deploymen
 5. Inject the Environment Variables into Render (`GROQ_API_KEY`, `FIREBASE_*`, and `DATABASE_URL` from Supabase).
 
 This guarantees a production-ready URL to submit with the assignment that examiners can immediately test without setting up anything locally.
+
+---
+
+## 5. Clickable Debug History
+
+### What We Implemented
+Every assistant response now **persists its full debug metadata** (model used, classification, token counts, latency, evaluator flags, and retrieved source chunks) into the database. When a user opens a past conversation and **clicks on any assistant message**, the Debug Info panel on the right instantly repopulates with the exact metadata from that historical turn — exactly as it appeared during the live generation.
+
+### How It Works
+
+**Backend (Metadata Persistence):**
+- The `Message` database model has a `metadata_json` column (PostgreSQL `JSON` type) that stores the complete debug payload alongside the assistant's text content.
+- Both the `/query` and `/query/stream` endpoints construct a metadata dictionary containing: `model_used`, `classification`, `tokens`, `latency_ms`, `chunks_retrieved`, `evaluator_flags`, and `sources`.
+- This metadata is passed to `crud.add_message()` and saved atomically with the assistant's response in a single database transaction.
+
+**Backend (History API):**
+- The `GET /conversations/{id}` endpoint now returns `metadata` alongside `role`, `content`, and `created_at` for each message.
+- User messages have `metadata: null`; assistant messages have the full debug payload.
+
+**Frontend (Click-to-View):**
+- When loading a past conversation, the frontend checks each assistant message for a `metadata` property.
+- If metadata exists, the message element gets `cursor: pointer` and a tooltip ("Click to view debug info").
+- Clicking the message calls `updateDebugPanel()` with the stored metadata, instantly restoring the Model & Routing, Token Usage, Evaluator Flags, and Sources cards.
+- Warning badges (e.g., `⚠️ Flagged: refusal`) are also retroactively injected into historical messages that had evaluator flags.
+
+### Design Decision
+**Why store metadata in the message table?** — Storing debug info inline with the message avoids a separate join table and keeps the data lifecycle tied to the conversation. If a conversation is deleted, its debug history is automatically purged via the existing `CASCADE` foreign key. The `JSON` column type is ideal because the metadata schema may evolve without requiring database migrations.

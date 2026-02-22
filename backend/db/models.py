@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer, Text, func
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer, Text, func, Index, JSON
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 import uuid
@@ -34,6 +34,7 @@ class Message(Base):
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
     role = Column(String, nullable=False) # 'user' or 'assistant'
     content = Column(Text, nullable=False)
+    metadata_json = Column(JSON, nullable=True) # Stores debug info, tokens, latency, sources
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     conversation = relationship("Conversation", back_populates="messages")
@@ -49,3 +50,13 @@ class DocumentChunk(Base):
     
     # 384 dimensions for sentence-transformers/all-MiniLM-L6-v2
     embedding = Column(Vector(384), nullable=False)
+
+    __table_args__ = (
+        Index(
+            'hnsw_embedding_idx',
+            'embedding',
+            postgresql_using='hnsw',
+            postgresql_with={'m': 16, 'ef_construction': 64},
+            postgresql_ops={'embedding': 'vector_cosine_ops'}
+        ),
+    )
