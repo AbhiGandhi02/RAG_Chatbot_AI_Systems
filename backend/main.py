@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.db.database import get_db
+from backend.db.database import get_db, AsyncSessionLocal
 from backend.db.models import User
 from backend.db import crud
 from backend.auth.dependencies import get_current_user
@@ -242,9 +242,11 @@ async def query_stream(
             elif chunk["type"] == "done":
                 flags = [] if is_greeting else evaluate_response(full_answer, len(retrieved_chunks), retrieved_chunks)
                 
-                # Save to DB inside the generator
-                await crud.add_message(db, conv.id, "user", question)
-                await crud.add_message(db, conv.id, "assistant", full_answer)
+                # Save to DB inside the generator using its own session context
+                async with AsyncSessionLocal() as stream_db:
+                    await crud.add_message(stream_db, conv.id, "user", question)
+                    await crud.add_message(stream_db, conv.id, "assistant", full_answer)
+                    await stream_db.commit()
                 
                 done_event = {
                     "type": "done",

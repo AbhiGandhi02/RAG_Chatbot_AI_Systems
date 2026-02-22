@@ -12,9 +12,15 @@ User Query → Router (classify) → Retriever (FAISS search) → LLM (Groq) →
 
 | Layer | Component | Purpose |
 |-------|-----------|---------|
-| **Layer 1** | Model Router | Deterministic classifier routes simple → 8B, complex → 70B |
-| **Layer 2** | RAG Retriever | FAISS vector search over 202 chunks from 30 PDFs |
-| **Layer 3** | Output Evaluator | Flags: `no_context`, `refusal`, `conflicting_info` |
+| **Layer 1: Model Router** | Deterministic Rule-Based Classifier | Routes queries using a custom 6-signal complexity scorer heuristics. Simple queries (score < 2) → 8B, Complex queries (score ≥ 2) → 70B. No LLMs used for decision-making. |
+| **Layer 2: RAG Retriever** | `PyPDF2` + Recursive Chunking + FAISS | Custom-built extraction and chunking pipeline (no external RAG services). FAISS vector search retrieves relevant context. |
+| **Layer 3: Output Evaluator** | Flagged Validations | Evaluates LLM output post-generation for `no_context`, `refusal` (non-answers), and `conflicting_info` (domain-specific check). Flags trigger a low-confidence UI warning. |
+
+### Note on Chunking Strategy (Assignment Requirement)
+Chunks are generated using a manual **Recursive Character Text Splitter**.
+- **Chunk Size:** 500 characters
+- **Overlap:** 100 characters
+- **Strategy:** Sentences are kept whole. If a sentence exceeds the chunk boundary, it breaks cleanly on a space. This size was chosen because the provided PDFs often contain brief, bulleted steps (like setting up SSO) where 500 characters captures the full instructional thought without diluting the embedding vector with unrelated surrounding text, while the 100-character overlap prevents cutting a critical step or code snippet in half.
 
 ### Tech Stack
 
@@ -142,11 +148,11 @@ AI_System_Assignment/
 │   │   ├── embeddings.py       # Embedding generation + FAISS index
 │   │   └── retriever.py        # Similarity search + context builder
 │   ├── router/
-│   │   └── classifier.py       # Rule-based query classifier (6 signals)
+│   │   └── classifier.py       # Deterministic rule-based query classifier (6 signals)
 │   ├── llm/
 │   │   └── groq_client.py      # Groq API wrapper with token tracking
 │   ├── evaluator/
-│   │   └── evaluator.py        # Output evaluation (3 flags)
+│   │   └── evaluator.py        # Output evaluation (3 flags including custom check)
 │   └── models/
 │       └── schemas.py          # Pydantic request/response models
 ├── frontend/
@@ -162,14 +168,14 @@ AI_System_Assignment/
 
 ---
 
-## Model Routing
+## Model Routing Strategy
+
+The router relies entirely on a deterministic, rule-based classifier. Calling an LLM simply to classify a query is too expensive and slow for the first hop of a support bot. The router instead scores the input on 6 signals (greetings, query length, complex keywords, multi-part questions, complaints, and subordinate clauses). See `written_answers.md` Q1 for the exact scoring breakdown.
 
 | Classification | Model | Trigger |
 |---------------|-------|---------|
-| **Simple** | `llama-3.1-8b-instant` | Greetings, short factual queries, single-keyword lookups |
-| **Complex** | `llama-3.3-70b-versatile` | Multi-part questions, comparisons, troubleshooting, long queries |
-
-Decision boundary: complexity score ≥ 2 → complex. See `written_answers.md` Q1 for full signal breakdown.
+| **Simple** (Score < 2) | `llama-3.1-8b-instant` | Greetings, short factual queries, single-keyword lookups |
+| **Complex** (Score ≥ 2)| `llama-3.3-70b-versatile` | Multi-part questions, comparisons, troubleshooting, long queries |
 
 ---
 
